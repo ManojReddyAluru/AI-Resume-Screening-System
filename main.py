@@ -11,10 +11,22 @@ AWS_PROFILE = "resume-screening-dev"
 AWS_REGION = "ap-south-1"
 S3_BUCKET = "resume-screening-768801480012-2026"
 
-aws_session = boto3.Session(
-    profile_name=AWS_PROFILE,
-    region_name=AWS_REGION
-)
+
+import os
+
+AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
+AWS_PROFILE = os.getenv("AWS_PROFILE", "resume-screening-dev")
+
+if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
+    aws_session = boto3.Session(region_name=AWS_REGION)
+elif os.getenv("AWS_EXECUTION_ENV") or os.getenv("RENDER"):
+    aws_session = boto3.Session(region_name=AWS_REGION)
+else:
+    aws_session = boto3.Session(
+        profile_name=AWS_PROFILE,
+        region_name=AWS_REGION
+    )
+
 
 s3_client = aws_session.client("s3")
 textract_client = aws_session.client("textract")
