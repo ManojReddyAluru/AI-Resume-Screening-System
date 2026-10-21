@@ -1,0 +1,618 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Resume Screening System</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f1f5f9;
+            color: #1e293b;
+        }
+        header {
+            background: #172554;
+            color: white;
+            padding: 24px 8%;
+        }
+        header h1 { margin: 0 0 8px; }
+        header p { margin: 0; color: #cbd5e1; }
+        main {
+            max-width: 1000px;
+            margin: 35px auto;
+            padding: 0 20px;
+        }
+        .card {
+            background: white;
+            padding: 28px;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px #0000000d;
+            margin-bottom: 22px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin: 18px 0 8px;
+        }
+        input[type="file"], input[type="text"], textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            font: inherit;
+        }
+        textarea { min-height: 180px; resize: vertical; }
+        button {
+            margin: 12px 8px 0 0;
+            padding: 13px 22px;
+            border: none;
+            border-radius: 7px;
+            background: #2563eb;
+            color: white;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #94a3b8; cursor: not-allowed; }
+        #status, #historyResults, #githubResults {
+            margin-top: 18px;
+            overflow-wrap: anywhere;
+        }
+        .result-card {
+            background: white;
+            padding: 24px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .score {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            padding: 18px;
+            margin: 16px 0;
+        }
+        .score-value {
+            font-size: 30px;
+            font-weight: bold;
+            color: #1d4ed8;
+        }
+        .item-card {
+            border: 1px solid #cbd5e1;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            overflow-wrap: anywhere;
+        }
+        .table-wrapper { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: top;
+        }
+        th { background: #f8fafc; }
+        .muted { color: #64748b; }
+        .error { color: #b91c1c; }
+        a { color: #1d4ed8; overflow-wrap: anywhere; }
+        hr {
+            border: 0;
+            border-top: 1px solid #e2e8f0;
+            margin: 28px 0;
+        }
+        footer {
+            text-align: center;
+            padding: 24px;
+            color: #64748b;
+        }
+        @media (max-width: 600px) {
+            .card { padding: 18px; }
+            header { padding: 24px 20px; }
+            .score-value { font-size: 25px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AI Resume Screening System</h1>
+        <p>Evidence-based candidate screening and skill-gap analysis</p>
+    </header>
+
+    <main>
+        <section class="card">
+            <h2>Screen a Candidate</h2>
+            <p>Upload a PDF resume and enter the job requirements.</p>
+            <form id="screeningForm">
+                <label for="resume">Candidate Resume (PDF)</label>
+                <input type="file" id="resume" accept=".pdf,application/pdf" multiple required>
+
+                <label for="jobDescription">Job Description</label>
+                <textarea id="jobDescription" placeholder="Enter the role, required skills, experience and qualifications..." required></textarea>
+
+                <button type="submit" id="analyzeButton">Analyze Resume</button>
+                <button type="button" id="compareButton">Compare Multiple Resumes</button>
+            </form>
+            <div id="status" role="status" aria-live="polite"></div>
+        </section>
+
+        <section class="card">
+            <h2>Screening History</h2>
+            <p class="muted">View previously saved screening records.</p>
+            <button type="button" id="historyButton">View Previous Screenings</button>
+            <div id="historyResults"></div>
+        </section>
+
+        <section class="card">
+            <h2>GitHub Project Verification</h2>
+            <p>Enter a candidate's GitHub username to view public repositories.</p>
+            <label for="githubUsername">GitHub Username</label>
+            <input type="text" id="githubUsername" placeholder="e.g. octocat" maxlength="39">
+            <button type="button" id="githubButton">Fetch GitHub Repositories</button>
+            <div id="githubResults"></div>
+        </section>
+    </main>
+
+    <footer>AI Resume Screening System | Human review required</footer>
+
+    <script>
+        const status = document.getElementById("status");
+
+        function createElement(tag, text, className) {
+            const element = document.createElement(tag);
+            if (text !== undefined && text !== null) {
+                element.textContent = String(text);
+            }
+            if (className) element.className = className;
+            return element;
+        }
+
+        function addText(parent, tag, label, value) {
+            const element = document.createElement(tag);
+            if (label) {
+                const strong = document.createElement("strong");
+                strong.textContent = label;
+                element.appendChild(strong);
+            }
+            if (value !== undefined && value !== null) {
+                element.appendChild(document.createTextNode(
+                    (label ? " " : "") + String(value)
+                ));
+            }
+            parent.appendChild(element);
+            return element;
+        }
+
+        async function fetchJson(url, options = {}) {
+            const response = await fetch(url, options);
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || data.message || "Request failed.");
+            }
+            return data;
+        }
+
+        function renderList(parent, heading, items, emptyText) {
+            parent.appendChild(createElement("h3", heading));
+            if (!Array.isArray(items) || items.length === 0) {
+                parent.appendChild(createElement("p", emptyText));
+                return;
+            }
+            const list = document.createElement("ul");
+            items.forEach(item => list.appendChild(createElement("li", item)));
+            parent.appendChild(list);
+        }
+
+        function renderCandidateReport(report, summary, filename) {
+            const resultCard = createElement("div", undefined, "result-card");
+            resultCard.appendChild(createElement("h2", "Screening Results"));
+
+            const matching = report.skill_matching || {};
+            const evaluation = report.candidate_evaluation || {};
+            const candidate = summary.candidate_summary || {};
+            const combinedScore =
+                evaluation.combined_match_percentage ??
+                matching.combined_match_percentage;
+
+            if (combinedScore !== undefined && combinedScore !== null) {
+                const scoreCard = createElement("div", undefined, "score");
+                scoreCard.appendChild(createElement("p", "Combined Match Score"));
+                scoreCard.appendChild(createElement("div", `${combinedScore}%`, "score-value"));
+                scoreCard.appendChild(createElement(
+                    "p",
+                    "Experimental indicator based on skill matching and text similarity."
+                ));
+                resultCard.appendChild(scoreCard);
+            }
+
+            addText(resultCard, "p", "Skill Match:",
+                `${matching.skill_match_percentage ?? "N/A"}%`);
+            addText(resultCard, "p", "Text Similarity:",
+                `${matching.text_similarity_percentage ?? "N/A"}%`);
+            addText(resultCard, "p", "Candidate ID:",
+                report.candidate_id || "Not available");
+            addText(resultCard, "p", "Storage Status:",
+                report.storage_status || "Not reported");
+
+            renderList(resultCard, "Matched Skills",
+                matching.matched_skills, "No matched skills found.");
+            renderList(resultCard, "Missing Skills",
+                matching.missing_skills, "No missing skills found.");
+
+            resultCard.appendChild(document.createElement("hr"));
+            resultCard.appendChild(createElement("h2", "Candidate Summary"));
+
+            addText(resultCard, "p", "Assessment:",
+                candidate.overall_assessment || "Not available");
+            addText(resultCard, "p", "Summary Skill Match:",
+                candidate.skill_match_percentage === undefined
+                    ? "Not available"
+                    : `${candidate.skill_match_percentage}%`);
+
+            renderList(resultCard, "Strengths",
+                candidate.strengths, "No strengths identified.");
+            renderList(resultCard, "Skill Gaps",
+                candidate.skill_gaps, "No skill gaps identified.");
+
+            resultCard.appendChild(createElement("h3", "Evidence Analysis"));
+            const evidence = candidate.evidence_review ||
+                report.evidence_analysis?.skill_analysis || [];
+
+            if (!evidence.length) {
+                resultCard.appendChild(createElement("p", "No evidence analysis available."));
+            } else {
+                evidence.forEach(item => {
+                    const card = createElement("div", undefined, "item-card");
+                    card.appendChild(createElement("strong", item.skill || "Skill"));
+                    card.appendChild(createElement("p", item.status || "No status available."));
+                    card.appendChild(createElement(
+                        "p",
+                        item.evidence_context || "No supporting context found.",
+                        "muted"
+                    ));
+                    resultCard.appendChild(card);
+                });
+            }
+
+            renderList(resultCard, "Suggested Interview Questions",
+                candidate.suggested_interview_questions,
+                "No additional questions suggested.");
+
+            if (summary.disclaimer) {
+                resultCard.appendChild(createElement("p", summary.disclaimer, "muted"));
+            }
+            if (report.disclaimer) {
+                resultCard.appendChild(createElement("p", report.disclaimer, "muted"));
+            }
+
+            // Download the actual screening results as a PDF.
+            const downloadButton = createElement("button", "Download PDF Report");
+            downloadButton.type = "button";
+
+            downloadButton.addEventListener("click", async function() {
+                downloadButton.disabled = true;
+                downloadButton.textContent = "Generating PDF...";
+
+                const reportData = {
+                    filename: filename || "Resume",
+                    skill_match_percentage: matching.skill_match_percentage ?? 0,
+                    text_similarity_percentage: matching.text_similarity_percentage ?? 0,
+                    combined_match_percentage: combinedScore ?? 0,
+                    matched_skills: matching.matched_skills || [],
+                    missing_skills: matching.missing_skills || []
+                };
+
+                try {
+                    const response = await fetch("/download-report", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(reportData)
+                    });
+
+                    if (!response.ok) {
+                        let message = "Could not generate PDF report.";
+                        try {
+                            const errorData = await response.json();
+                            message = errorData.detail || message;
+                        } catch (_) {}
+                        throw new Error(message);
+                    }
+
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = "screening_report.pdf";
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    URL.revokeObjectURL(url);
+                } catch (error) {
+                    status.appendChild(createElement(
+                        "p", "Report download failed: " + error.message, "error"
+                    ));
+                } finally {
+                    downloadButton.disabled = false;
+                    downloadButton.textContent = "Download PDF Report";
+                }
+            });
+
+            resultCard.appendChild(downloadButton);
+            status.replaceChildren(resultCard);
+        }
+
+        // Single-resume screening
+        document.getElementById("screeningForm")
+            .addEventListener("submit", async function(event) {
+                event.preventDefault();
+
+                const file = document.getElementById("resume").files[0];
+                const jobDescription =
+                    document.getElementById("jobDescription").value.trim();
+                const button = document.getElementById("analyzeButton");
+
+                if (!file || !jobDescription) {
+                    status.textContent = "Please select a PDF and enter the job description.";
+                    return;
+                }
+                if (!file.name.toLowerCase().endsWith(".pdf")) {
+                    status.textContent = "Please select a PDF resume.";
+                    return;
+                }
+
+                button.disabled = true;
+                status.textContent = "Analyzing resume...";
+
+                try {
+                    const formData = new FormData();
+                    formData.append("file", file);
+
+                    const parsed = await fetchJson("/parse-resume", {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    const requestBody = {
+                        resume_text: parsed.resume_text,
+                        job_description: jobDescription,
+                        filename: parsed.filename
+                    };
+
+                    const report = await fetchJson("/candidate-report", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(requestBody)
+                    });
+
+                    const summary = await fetchJson("/candidate-summary", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(requestBody)
+                    });
+
+                    renderCandidateReport(report, summary, parsed.filename);
+                } catch (error) {
+                    status.replaceChildren(createElement(
+                        "p", "Error: " + error.message, "error"
+                    ));
+                } finally {
+                    button.disabled = false;
+                }
+            });
+
+        // Multiple-resume comparison
+        document.getElementById("compareButton")
+            .addEventListener("click", async function() {
+                const files = document.getElementById("resume").files;
+                const jobDescription =
+                    document.getElementById("jobDescription").value.trim();
+                const button = document.getElementById("compareButton");
+
+                if (files.length < 2) {
+                    status.textContent = "Please select at least two PDF resumes.";
+                    return;
+                }
+                if (!jobDescription) {
+                    status.textContent = "Please enter the job description.";
+                    return;
+                }
+                for (const file of files) {
+                    if (!file.name.toLowerCase().endsWith(".pdf")) {
+                        status.textContent = "All selected files must be PDFs.";
+                        return;
+                    }
+                }
+
+                const formData = new FormData();
+                for (const file of files) formData.append("files", file);
+                formData.append("job_description", jobDescription);
+
+                button.disabled = true;
+                status.textContent = "Comparing resumes...";
+
+                try {
+                    const result = await fetchJson("/compare-resumes", {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    const card = createElement("div", undefined, "result-card");
+                    card.appendChild(createElement("h2", "Candidate Comparison"));
+                    addText(card, "p", "Successfully processed:",
+                        `${result.candidate_count} candidates`);
+
+                    const wrapper = createElement("div", undefined, "table-wrapper");
+                    const table = document.createElement("table");
+                    const thead = document.createElement("thead");
+                    const headerRow = document.createElement("tr");
+
+                    ["Resume", "Combined Match", "Skill Match",
+                        "Text Similarity", "Missing Skills"].forEach(label => {
+                        headerRow.appendChild(createElement("th", label));
+                    });
+
+                    thead.appendChild(headerRow);
+                    table.appendChild(thead);
+                    const tbody = document.createElement("tbody");
+
+                    (result.candidates || []).forEach(candidate => {
+                        const row = document.createElement("tr");
+                        const combined = candidate.combined_match_percentage ??
+                            candidate.candidate_evaluation?.combined_match_percentage;
+
+                        const values = [
+                            candidate.filename || "Unknown",
+                            combined === undefined ? "N/A" : `${combined}%`,
+                            candidate.skill_match_percentage === undefined
+                                ? "N/A" : `${candidate.skill_match_percentage}%`,
+                            candidate.text_similarity_percentage === undefined
+                                ? "N/A" : `${candidate.text_similarity_percentage}%`,
+                            Array.isArray(candidate.missing_skills)
+                                ? candidate.missing_skills.join(", ") || "None"
+                                : "Not available"
+                        ];
+
+                        values.forEach(value => row.appendChild(createElement("td", value)));
+                        tbody.appendChild(row);
+                    });
+
+                    table.appendChild(tbody);
+                    wrapper.appendChild(table);
+                    card.appendChild(wrapper);
+
+                    if (result.errors?.length) {
+                        card.appendChild(createElement("h3", "Files that could not be processed"));
+                        const list = document.createElement("ul");
+                        result.errors.forEach(item => list.appendChild(
+                            createElement("li", `${item.filename}: ${item.error}`)
+                        ));
+                        card.appendChild(list);
+                    }
+
+                    if (result.disclaimer) {
+                        card.appendChild(createElement("p", result.disclaimer, "muted"));
+                    }
+                    status.replaceChildren(card);
+                } catch (error) {
+                    status.replaceChildren(createElement(
+                        "p", "Error: " + error.message, "error"
+                    ));
+                } finally {
+                    button.disabled = false;
+                }
+            });
+
+        // Screening history
+        document.getElementById("historyButton")
+            .addEventListener("click", async function() {
+                const results = document.getElementById("historyResults");
+                results.textContent = "Loading screening history...";
+
+                try {
+                    const data = await fetchJson("/screening-history");
+
+                    if (!data.screenings || data.screenings.length === 0) {
+                        results.textContent = "No previous screenings found.";
+                        return;
+                    }
+
+                    results.replaceChildren();
+                    addText(results, "p", "Total screenings:",
+                        data.total_screenings ?? data.screenings.length);
+
+                    const wrapper = createElement("div", undefined, "table-wrapper");
+                    const table = document.createElement("table");
+                    const thead = document.createElement("thead");
+                    const header = document.createElement("tr");
+
+                    ["Resume", "Screened At"].forEach(label =>
+                        header.appendChild(createElement("th", label))
+                    );
+
+                    thead.appendChild(header);
+                    table.appendChild(thead);
+                    const tbody = document.createElement("tbody");
+
+                    data.screenings.forEach(item => {
+                        const row = document.createElement("tr");
+                        row.appendChild(createElement("td", item.filename || "Unknown"));
+                        const date = item.screened_at
+                            ? new Date(item.screened_at).toLocaleString()
+                            : "Not available";
+                        row.appendChild(createElement("td", date));
+                        tbody.appendChild(row);
+                    });
+
+                    table.appendChild(tbody);
+                    wrapper.appendChild(table);
+                    results.appendChild(wrapper);
+                } catch (error) {
+                    results.textContent = "Error: " + error.message;
+                }
+            });
+
+        // GitHub public repository verification
+        document.getElementById("githubButton")
+            .addEventListener("click", async function() {
+                const username =
+                    document.getElementById("githubUsername").value.trim();
+                const results = document.getElementById("githubResults");
+                const button = document.getElementById("githubButton");
+
+                if (!username) {
+                    results.textContent = "Please enter a GitHub username.";
+                    return;
+                }
+
+                results.textContent = "Fetching public repositories...";
+                button.disabled = true;
+
+                try {
+                    const data = await fetchJson(
+                        `/github-profile/${encodeURIComponent(username)}`
+                    );
+
+                    results.replaceChildren();
+                    addText(results, "p", "Username:", data.username);
+                    addText(results, "p", "Repositories retrieved:",
+                        data.repository_count);
+
+                    if (!data.repositories || data.repositories.length === 0) {
+                        results.appendChild(createElement("p", "No public repositories found."));
+                        return;
+                    }
+
+                    data.repositories.forEach(repo => {
+                        const card = createElement("div", undefined, "item-card");
+                        card.appendChild(createElement("strong", repo.name || "Unnamed repository"));
+                        card.appendChild(createElement("p", repo.description || "No description provided."));
+                        addText(card, "p", "Language:", repo.language || "Not specified");
+                        addText(card, "p", "Stars:", repo.stars ?? 0);
+
+                        try {
+                            const repoUrl = new URL(repo.url);
+                            if (repoUrl.protocol === "https:") {
+                                const link = createElement("a", "View repository");
+                                link.href = repoUrl.href;
+                                link.target = "_blank";
+                                link.rel = "noopener noreferrer";
+                                card.appendChild(link);
+                            }
+                        } catch (_) {
+                            card.appendChild(createElement("p", "Repository link unavailable."));
+                        }
+
+                        results.appendChild(card);
+                    });
+                } catch (error) {
+                    results.textContent = "Error: " + error.message;
+                } finally {
+                    button.disabled = false;
+                }
+            });
+    </script>
+</body>
+</html>
